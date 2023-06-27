@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from enum import Enum
 from codingchallenge_qa_service.logging import getLogger
 from typing import Any, Dict, Optional, Union
@@ -16,6 +17,47 @@ logger = getLogger(name=__name__)
 
 
 router = APIRouter()
+
+def logging_time(func):
+    """Decorator that logs time"""
+    async def wrap_logger(*args, **kwargs):
+        """Function that logs time"""
+        time_measure: Clock = Measure.start_clock()
+        result = await func(*args, **kwargs)
+        duration = time_measure.stop()
+        if result:
+            record_dict = dict()
+            if "model_context" in result.keys() and "model_name" in result["model_context"]:
+                record_dict["model_name"] = result["model_context"]["model_name"]
+            elif "model_name" in result.keys():
+                record_dict["model_name"] = result["model_name"]
+            if "sensitivity" in result.keys():
+                record_dict["sensitivity"] = result["sensitivity"]
+            if "answer" in result.keys():
+                record_dict["answer"] = result["answer"]
+            record_dict["pipeline_steps"] = {
+                        str(func.__name__): result
+                    }
+            print("record_dict",record_dict)
+
+            result["duration"] = duration
+            func_args = inspect.signature(func).bind(*args, **kwargs).arguments
+            func_args["request"].state.transaction.record(
+                {
+                    "pipeline_steps": {
+                        str(func.__name__): result
+                    }
+                }
+            )
+            
+            # func_args["request"].state.transaction.record(
+            #     record_dict
+            #     )
+            if "sensitivity" in result.keys():
+                return result["sensitivity"] != "SAFE"
+        return result
+
+    return wrap_logger
 
 
 class ResponseType(str, Enum):
@@ -59,55 +101,30 @@ async def _run_sensitive_content_detection(request, query: str, user_id: str) ->
     return scd_response
 
 
+@logging_time
 async def _question_has_sensitive_content(request: Request, user_id: str, question: str) -> bool:
-    time_sensitive_content_detection: Clock = Measure.start_clock()
     scd_response = await _run_sensitive_content_detection(request, question, user_id)
-    request.state.transaction.record(
-        {
-            "pipeline_steps": {
-                "sensitive_content_detection_question": {
-                    "sensitivity": scd_response["sensitivity"],
-                    "model_name": scd_response["model_name"],
-                    "duration": time_sensitive_content_detection.stop(),
-                }
-            },
-            "question_sensitivity": scd_response["sensitivity"],
-        }
-    )
-
     logger.info(
         f"Classified question as {scd_response['sensitivity']}.",
         extra={"context": {"question": question, "sensitivity": scd_response["sensitivity"]}},
     )
-    return scd_response["sensitivity"] != "SAFE"
+    return scd_response 
 
 
+@logging_time
 async def _answer_has_sensitive_content(request: Request, user_id: str, answer: str) -> bool:
-    time_sensitive_content_detection: Clock = Measure.start_clock()
     scd_response = await _run_sensitive_content_detection(request, answer, user_id)
-    request.state.transaction.record(
-        {
-            "pipeline_steps": {
-                "sensitive_content_detection_answer": {
-                    "sensitivity": scd_response["sensitivity"],
-                    "model_name": scd_response["model_name"],
-                    "duration": time_sensitive_content_detection.stop(),
-                }
-            },
-            "answer_sensitivity": scd_response["sensitivity"],
-        }
-    )
     logger.info(
         f"Classified answer as {scd_response['sensitivity']}.",
         extra={"context": {"answer": answer, "sensitivity": scd_response["sensitivity"]}},
     )
-    return scd_response["sensitivity"] != "SAFE"
+    return scd_response
 
 
+@logging_time
 async def _get_prefiltered_documents_from_elasticsearch(
     request: Request, course_id: str, question: str, language: Language
 ) -> Dict:
-    time_preselection: Clock = Measure.start_clock()
     try:
         prefiltered_doc = await request.app.state.services.prefiltering_service.run(
             query=question,
@@ -120,26 +137,17 @@ async def _get_prefiltered_documents_from_elasticsearch(
         raise HTTPException(
             status_code=412, detail="Failed to fetch prefiltered document from ElasticSearch."
         )
-    request.state.transaction.record(
-        {
-            "pipeline_steps": {
-                "preselection": {
-                    "result": {"doc_id": prefiltered_doc["doc_id"]} if prefiltered_doc else {},
-                    "duration": time_preselection.stop(),
-                }
-            },
-        }
-    )
+
     if not prefiltered_doc:
         logger.info("No relevant data found while prefiltering.")
 
     return prefiltered_doc
 
 
+@logging_time
 async def _get_answer_from_paraphrase(
     request: Request, course_id: str, cleaned_question: str
 ) -> Optional[ParaphraseServiceResponse]:
-    time_paraphrase: Clock = Measure.start_clock()
     answer_from_paraphrase = None
     try:
         answer_from_paraphrase = await request.app.state.services.paraphrase_service.find_paraphrase(
@@ -151,43 +159,19 @@ async def _get_answer_from_paraphrase(
     except Exception as e:
         logger.error("Failed to connect to the paraphrase service.", exc_info=e)
         request.state.transaction.record({"error": "Exception in Paraphrasing.", "exc_info": e})
-    if answer_from_paraphrase:
-        logger.info("Gold Standard answer retrieved from Paraphrase service.")
-        request.state.transaction.record(
-            {
-                "pipeline_steps": {
-                    "paraphrase": {
-                        "result": answer_from_paraphrase,
-                        "duration": time_paraphrase.stop(),
-                    }
-                },
-            }
-        )
+    
     return answer_from_paraphrase
 
 
+@logging_time
 async def _get_model_inference_result(
     request: Request, user_id: str, question: str, doc: Dict, language: str
 ) -> Dict[str, Any]:
     try:
-        time_qa: Clock = Measure.start_clock()
         inference_response = await request.app.state.services.infer_service.run(
             query=question, doc=doc, user_id=user_id, language=language
         )
         model_name = inference_response["model_context"]["model_name"]
-        request.state.transaction.record(
-            {
-                "model_name": model_name,
-                "answer": inference_response["answer"],
-                "pipeline_steps": {
-                    "inference": {
-                        "model_name": model_name,
-                        "inference_body": inference_response,
-                        "duration": time_qa.stop(),
-                    }
-                },
-            }
-        )
         logger.info(
             "QA Service result ",
             extra={"context": {"model_name": model_name, "answer": inference_response["answer"]}},
@@ -232,7 +216,7 @@ async def infer(
 
     if paraphrase:
         return InferResponse(
-            answer=paraphrase.gs_answer_content_str,
+            answer=paraphrase["paraphrase_service_response"]["gs_answer_content_str"],
             question=cleaned_question,
             answer_validity="valid",
             transaction_id=request.state.transaction.transaction_id,

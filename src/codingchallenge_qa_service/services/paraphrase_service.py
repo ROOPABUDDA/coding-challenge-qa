@@ -17,14 +17,15 @@ class ParaphraseService:
             logger.info("No paraphrase found")
             return None
 
-        return ParaphraseServiceResponse(
-            question_origin_uuid=uuid4(),
-            question_origin_content_str="Et harum quidem rerum facilis est et expedita distinctio",
-            course_id="0000-0000-0",
-            gs_answer_uuid=uuid4(),
-            gs_answer_content_str="Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem",  # noqa: E501
-            meta_data={
-                "coursebook_ids": ["0000-0000-0"],
-                "language": "de"
-            },
-        )
+        return {
+            "paraphrase_service_response": ParaphraseServiceResponse(
+                question_origin_uuid=uuid4(),
+                question_origin_content_str="Et harum quidem rerum facilis est et expedita distinctio",
+                course_id="0000-0000-0",
+                gs_answer_uuid=uuid4(),
+                gs_answer_content_str="Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem",  # noqa: E501
+                meta_data={
+                    "coursebook_ids": ["0000-0000-0"],
+                    "language": "de"
+                },
+            )}
