@@ -1,0 +1,23 @@
+title Request flow
+
+User->App:query
+
+App->App: sensitive_content_detection: query
+opt sensitve content detected
+App-->User: status_code: 400
+end
+
+App->App: paraphrasing
+opt paraphrase found
+App-->User: status_code: 200, answer
+end
+
+App->App: prefiltering
+App->App: infer
+
+App->App: sensitive_content_detection: answer
+opt sensitve content detected
+App-->User: status_code: 400
+end
+
+App-->User: status_code: 200, answer
