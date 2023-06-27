@@ -18,6 +18,7 @@ logger = getLogger(name=__name__)
 
 router = APIRouter()
 
+# Decorator created for transaction record logging with individual duration calculation
 def logging_time(func):
     """Decorator that logs time"""
     async def wrap_logger(*args, **kwargs):
