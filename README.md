@@ -33,7 +33,7 @@ In the second interview, we would be happy to talk about your solution: You will
 
 * duration: 2-4 hours
 * provided: repository with a working python/fastapi application
-* solution: please submit as a PR in a `feature/*` branch to this repo
+* solution: please fork this repo and prepare a PR
 
 ### the repository
 
